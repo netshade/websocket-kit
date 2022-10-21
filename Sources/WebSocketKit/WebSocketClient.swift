@@ -6,6 +6,7 @@ import NIOWebSocket
 import NIOSSL
 import NIOTransportServices
 import Atomics
+import Networking
 
 public final class WebSocketClient {
     public enum Error: Swift.Error, LocalizedError {
@@ -55,6 +56,7 @@ public final class WebSocketClient {
         scheme: String,
         host: String,
         port: Int,
+        endpoint: NWEndpoint?,
         path: String = "/",
         query: String? = nil,
         headers: HTTPHeaders = [:],
@@ -123,7 +125,8 @@ public final class WebSocketClient {
                 }
             }
 
-        let connect = bootstrap.connect(host: host, port: port)
+
+        let connect = endpoint != nil ? bootstrap.connect(endpoint) : bootstrap.connect(host: host, port: port)
         connect.cascadeFailure(to: upgradePromise)
         return connect.flatMap { channel in
             return upgradePromise.futureResult
@@ -147,7 +150,7 @@ public final class WebSocketClient {
             }
         }
     }
-    
+
     private static func makeBootstrap(on eventLoop: EventLoopGroup) -> NIOClientTCPBootstrapProtocol {
         #if canImport(Network)
         if let tsBootstrap = NIOTSConnectionBootstrap(validatingGroup: eventLoop) {
