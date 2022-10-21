@@ -1,3 +1,5 @@
+import Network
+
 extension WebSocket {
     public static func connect(
         to url: String,
@@ -43,6 +45,7 @@ extension WebSocket {
         scheme: String = "ws",
         host: String,
         port: Int = 80,
+        endpoint: NWEndpoint? = nil,
         path: String = "/",
         query: String? = nil,
         headers: HTTPHeaders = [:],
@@ -57,6 +60,7 @@ extension WebSocket {
             scheme: scheme,
             host: host,
             port: port,
+            endpoint: endpoint,
             path: path,
             query: query,
             headers: headers,
