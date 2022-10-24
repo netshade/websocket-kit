@@ -57,6 +57,8 @@ public final class WebSocketClient {
         host: String,
         port: Int,
         endpoint: NWEndpoint? = nil,
+        tcpOptions: NWProtocolTCP.Options? = nil,
+        tlsOptions: NWProtocolTLS.Options? = nil,
         path: String = "/",
         query: String? = nil,
         headers: HTTPHeaders = [:],
@@ -130,6 +132,12 @@ public final class WebSocketClient {
         #if canImport(Network)
           if let endpoint = endpoint {
             if let tsBootstrap = bootstrap as? NIOTSConnectionBootstrap {
+                if let tcp = tcpOptions {
+                    _ = tsBootstrap.tcpOptions(tcp)
+                }
+                if let tls = tlsOptions {
+                    _ = tsBootstrap.tlsOptions(tls)
+                }
                 connect = tsBootstrap.connect(endpoint: endpoint)
             } else {
                 connect = bootstrap.connect(host: host, port: port)
