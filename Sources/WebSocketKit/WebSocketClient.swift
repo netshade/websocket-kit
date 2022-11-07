@@ -6,7 +6,9 @@ import NIOWebSocket
 import NIOSSL
 import NIOTransportServices
 import Atomics
+#if canImport(Network)
 import Network
+#endif
 
 public final class WebSocketClient {
     public enum Error: Swift.Error, LocalizedError {
@@ -52,6 +54,7 @@ public final class WebSocketClient {
         self.configuration = configuration
     }
 
+    #if canImport(Network)
     public func connect(
         scheme: String,
         host: String,
@@ -130,7 +133,6 @@ public final class WebSocketClient {
 
 
         var connect: EventLoopFuture<Channel>? = nil
-        #if canImport(Network)
           if let endpoint = endpoint {
             if let tsBootstrap = bootstrap as? NIOTSConnectionBootstrap {
                 if let tcp = tcpOptions {
@@ -146,15 +148,93 @@ public final class WebSocketClient {
           } else {
             connect = bootstrap.connect(host: host, port: port)
           }
-        #else
-            connect = bootstrap.connect(host: host, port: port)
-        #endif
 
         connect!.cascadeFailure(to: upgradePromise)
         return connect!.flatMap { channel in
             return upgradePromise.futureResult
         }
     }
+    #else
+    public func connect(
+        scheme: String,
+        host: String,
+        port: Int,
+        path: String = "/",
+        query: String? = nil,
+        headers: HTTPHeaders = [:],
+        onUpgrade: @escaping (WebSocket) -> ()
+    ) -> EventLoopFuture<Void> {
+        assert(["ws", "wss"].contains(scheme))
+        let upgradePromise = self.group.next().makePromise(of: Void.self)
+        let bootstrap = WebSocketClient.makeBootstrap(on: self.group)
+            .channelOption(ChannelOptions.socket(SocketOptionLevel(IPPROTO_TCP), TCP_NODELAY), value: 1)
+            .channelInitializer { channel in
+                let httpHandler = HTTPInitialRequestHandler(
+                    host: host,
+                    path: path,
+                    query: query,
+                    headers: headers,
+                    upgradePromise: upgradePromise
+                )
+
+                var key: [UInt8] = []
+                for _ in 0..<16 {
+                    key.append(.random(in: .min ..< .max))
+                }
+                let websocketUpgrader = NIOWebSocketClientUpgrader(
+                    requestKey:  Data(key).base64EncodedString(),
+                    maxFrameSize: self.configuration.maxFrameSize,
+                    automaticErrorHandling: true,
+                    upgradePipelineHandler: { channel, req in
+                        return WebSocket.client(on: channel, onUpgrade: onUpgrade)
+                    }
+                )
+
+                let config: NIOHTTPClientUpgradeConfiguration = (
+                    upgraders: [websocketUpgrader],
+                    completionHandler: { context in
+                        upgradePromise.succeed(())
+                        channel.pipeline.removeHandler(httpHandler, promise: nil)
+                    }
+                )
+
+                if scheme == "wss" {
+                    do {
+                        let context = try NIOSSLContext(
+                            configuration: self.configuration.tlsConfiguration ?? .makeClientConfiguration()
+                        )
+                        let tlsHandler: NIOSSLClientHandler
+                        do {
+                            tlsHandler = try NIOSSLClientHandler(context: context, serverHostname: host)
+                        } catch let error as NIOSSLExtraError where error == .cannotUseIPAddressInSNI {
+                            tlsHandler = try NIOSSLClientHandler(context: context, serverHostname: nil)
+                        }
+                        return channel.pipeline.addHandler(tlsHandler).flatMap {
+                            channel.pipeline.addHTTPClientHandlers(leftOverBytesStrategy: .forwardBytes, withClientUpgrade: config)
+                        }.flatMap {
+                            channel.pipeline.addHandler(httpHandler)
+                        }
+                    } catch {
+                        return channel.pipeline.close(mode: .all)
+                    }
+                } else {
+                    return channel.pipeline.addHTTPClientHandlers(
+                        leftOverBytesStrategy: .forwardBytes,
+                        withClientUpgrade: config
+                    ).flatMap {
+                        channel.pipeline.addHandler(httpHandler)
+                    }
+                }
+            }
+
+
+        var connect: EventLoopFuture<Channel> = bootstrap.connect(host: host, port: port)
+        connect.cascadeFailure(to: upgradePromise)
+        return connect.flatMap { channel in
+            return upgradePromise.futureResult
+        }
+    }
+    #endif
 
 
     public func syncShutdown() throws {

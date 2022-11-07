@@ -1,4 +1,6 @@
+#if canImport(Network)
 import Network
+#endif
 
 extension WebSocket {
     public static func connect(
@@ -41,6 +43,7 @@ extension WebSocket {
         )
     }
 
+    #if canImport(Network)
     public static func connect(
         scheme: String = "ws",
         host: String,
@@ -73,4 +76,34 @@ extension WebSocket {
             onUpgrade: onUpgrade
         )
     }
+    #else
+    public static func connect(
+        scheme: String = "ws",
+        host: String,
+        port: Int = 80,
+        path: String = "/",
+        query: String? = nil,
+        headers: HTTPHeaders = [:],
+        configuration: WebSocketClient.Configuration = .init(),
+        on eventLoopGroup: EventLoopGroup,
+        onUpgrade: @escaping (WebSocket) -> ()
+    ) -> EventLoopFuture<Void> {
+        return WebSocketClient(
+            eventLoopGroupProvider: .shared(eventLoopGroup),
+            configuration: configuration
+        ).connect(
+            scheme: scheme,
+            host: host,
+            port: port,
+            endpoint: endpoint,
+            tcpOptions: tcpOptions,
+            tlsOptions: tlsOptions,
+            parameters: parameters,
+            path: path,
+            query: query,
+            headers: headers,
+            onUpgrade: onUpgrade
+        )
+    }
+    #endif
 }
